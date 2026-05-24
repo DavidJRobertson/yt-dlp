@@ -117,7 +117,9 @@ class ThisVidIE(InfoExtractor):
             'id': flashvars['video_id'],
             'display_id': display_id or main_id,
             'title': title,
-            'description': self._og_search_description(webpage, default=None),
+            'description': clean_html(self._search_regex(
+                r'<ul\b[^>]+\bclass\s*=\s*["\']description["\'][^>]*>.*?<li[^>]*>\s*<p\b[^>]*>(.*?)</p>',
+                webpage, 'description', default=None, flags=re.S)) or self._og_search_description(webpage, default=None),
             'thumbnail': thumbnail and urljoin(url, thumbnail),
             'uploader': uploader,
             'uploader_id': uploader_id,
