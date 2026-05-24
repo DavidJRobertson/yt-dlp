@@ -110,6 +110,9 @@ class ThisVidIE(InfoExtractor):
             if not formats[-1].get('height'):
                 formats[-1]['quality'] = 1
 
+        def split_csv(key):
+            return [v.strip() for v in flashvars.get(key, '').split(',') if v.strip()]
+
         return {
             'id': flashvars['video_id'],
             'display_id': display_id or main_id,
@@ -119,6 +122,11 @@ class ThisVidIE(InfoExtractor):
             'uploader': uploader,
             'uploader_id': uploader_id,
             'age_limit': 18,
+            'view_count': int_or_none(self._search_regex(
+                r'<span\b[^>]*>\s*Viewed:\s*</span>\s*<span\b[^>]*>\s*(\d+)',
+                webpage, 'view count', default=None)),
+            'categories': split_csv('video_categories'),
+            'tags': split_csv('video_tags'),
             'formats': formats,
         }
 
