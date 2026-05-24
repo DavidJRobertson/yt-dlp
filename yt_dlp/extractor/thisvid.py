@@ -3,10 +3,13 @@ import re
 import urllib.parse
 
 from .common import InfoExtractor
+from .generic import GenericIE
 from ..utils import (
     clean_html,
     get_element_by_class,
     int_or_none,
+    js_to_json,
+    parse_resolution,
     url_or_none,
     urljoin,
 )
@@ -52,7 +55,7 @@ class ThisVidIE(InfoExtractor):
             webpage, 'title')
 
         if type_ == 'embed':
-            # look for more metadata
+            # look for more metadata on the main video page
             video_alt_url = url_or_none(self._search_regex(
                 rf'''video_alt_url\s*:\s+'({self._VALID_URL}/)',''',
                 webpage, 'video_alt_url', default=None))
@@ -62,7 +65,7 @@ class ThisVidIE(InfoExtractor):
                     note='Redirecting embed to main page', fatal=False) or webpage
 
         video_holder = get_element_by_class('video-holder', webpage) or ''
-        if '>This video is a private video' in video_holder:
+        if '>This video is a private video' in video_holder or 'restricted-category-message' in video_holder:
             self.raise_login_required(
                 (clean_html(video_holder) or 'Private video').partition('\n')[0])
 
@@ -77,12 +80,47 @@ class ThisVidIE(InfoExtractor):
         else:
             uploader_id = uploader = None
 
-        return self.url_result(
-            url, ie='Generic', url_transparent=True,
-            title=title,
-            age_limit=18,
-            uploader=uploader,
-            uploader_id=uploader_id)
+        flashvars = self._search_json(
+            r'(?s:<script\b[^>]*>.*?var\s+flashvars\s*=)',
+            webpage, 'flashvars', main_id, transform_source=js_to_json)
+
+        display_id = self._search_regex(
+            r'(?:<link href="https?://[^"]+/(.+?)/?" rel="canonical"\s*/?>'
+            r'|<link rel="canonical" href="https?://[^"]+/(.+?)/?"\s*/?>)',
+            webpage, 'display_id', fatal=False)
+
+        thumbnail = flashvars.get('preview_url')
+        if thumbnail and thumbnail.startswith('//'):
+            protocol, _, _ = url.partition('/')
+            thumbnail = protocol + thumbnail
+
+        url_keys = list(filter(re.compile(r'^video_(?:url|alt_url\d*)$').match, flashvars.keys()))
+        formats = []
+        for key in url_keys:
+            if '/get_file/' not in flashvars[key]:
+                continue
+            format_id = flashvars.get(f'{key}_text', key)
+            formats.append({
+                'url': urljoin(url, GenericIE._kvs_get_real_url(flashvars[key], flashvars['license_code'])),
+                'format_id': format_id,
+                'ext': 'mp4',
+                **(parse_resolution(format_id) or parse_resolution(flashvars[key])),
+                'http_headers': {'Referer': url},
+            })
+            if not formats[-1].get('height'):
+                formats[-1]['quality'] = 1
+
+        return {
+            'id': flashvars['video_id'],
+            'display_id': display_id or main_id,
+            'title': title,
+            'description': self._og_search_description(webpage, default=None),
+            'thumbnail': thumbnail and urljoin(url, thumbnail),
+            'uploader': uploader,
+            'uploader_id': uploader_id,
+            'age_limit': 18,
+            'formats': formats,
+        }
 
 
 class ThisVidPlaylistBaseIE(InfoExtractor):
